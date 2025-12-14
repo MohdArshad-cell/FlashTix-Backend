@@ -7,9 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,41 +25,46 @@ public class TicketConcurrencyTest {
 
     @Test
     public void testConcurrency() throws InterruptedException {
-        // 1. Setup: Create a single ticket
+        // 1. Setup
         Ticket t = new Ticket();
-        t.setSeatNumber("VIP-1");
+        t.setSeatNumber("VIP-TEST-1");
         t.setStatus("AVAILABLE");
         ticketRepository.save(t);
         Long ticketId = t.getId();
 
-        // 2. The Attack: Simulate 100 users trying to buy it at once
-        int numberOfThreads = 100;
+        // 2. The Attack: 500 threads
+        int numberOfThreads = 500;
         ExecutorService executor = Executors.newFixedThreadPool(numberOfThreads);
+        CountDownLatch latch = new CountDownLatch(1);
+        
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
 
         for (int i = 0; i < numberOfThreads; i++) {
             long userId = 1000 + i;
             executor.submit(() -> {
-                String result = ticketService.bookTicket(ticketId, userId);
-                if (result.contains("Success")) {
+                try {
+                    latch.await(); // Wait for start signal
+                    // Now calling the service. If it succeeds, we increment success.
+                    // If it throws ANY exception (Locked, Sold Out, etc.), we increment fail.
+                    ticketService.bookTicket(ticketId, userId);
                     successCount.incrementAndGet();
-                } else {
+                } catch (Exception e) {
                     failCount.incrementAndGet();
                 }
             });
         }
 
-        // 3. Wait for all attacks to finish
+        // 3. Start!
+        latch.countDown();
+        Thread.sleep(3000); // Wait for tasks
         executor.shutdown();
-        executor.awaitTermination(1, TimeUnit.MINUTES);
 
-        // 4. The Verdict (The Proof)
-        System.out.println("Successful Bookings: " + successCount.get());
-        System.out.println("Failed Bookings: " + failCount.get());
+        // 4. Verify
+        System.out.println("Success: " + successCount.get());
+        System.out.println("Failed: " + failCount.get());
 
-        // ONLY ONE should succeed. 99 MUST fail.
         assertEquals(1, successCount.get()); 
-        assertEquals(99, failCount.get());
+        assertEquals(numberOfThreads - 1, failCount.get());
     }
 }
