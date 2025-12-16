@@ -1,4 +1,4 @@
-
+![Build Status](https://github.com/MohdArshad-cell/FlashTix-Backend/actions/workflows/maven.yml/badge.svg)
 
 ```markdown
 # ⚡ FlashTix - High-Concurrency Ticketing Engine
