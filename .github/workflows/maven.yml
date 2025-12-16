@@ -10,6 +10,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # This 'services' block does exactly what your docker-compose.yml does
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: arshad
+          POSTGRES_PASSWORD: password123
+          POSTGRES_DB: flashtix_db
+        ports:
+          - 5432:5432
+        # This health check forces GitHub to wait until DB is ready before running tests
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - uses: actions/checkout@v3
     
@@ -24,5 +51,5 @@ jobs:
       run: chmod +x backend/mvnw
 
     - name: Build and Test with Maven
-      # We cd into 'backend' because that is where your pom.xml lives
+      # We cd into 'backend' because your pom.xml is inside that folder
       run: cd backend && ./mvnw clean test
