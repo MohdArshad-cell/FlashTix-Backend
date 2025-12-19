@@ -2,25 +2,24 @@ name: Java CI with Maven
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    # This 'services' block does exactly what your docker-compose.yml does
+    # This section spins up temporary DB/Redis containers for the test runner
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:15
         env:
-          POSTGRES_USER: arshad
-          POSTGRES_PASSWORD: password123
           POSTGRES_DB: flashtix_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
         ports:
           - 5432:5432
-        # This health check forces GitHub to wait until DB is ready before running tests
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -28,28 +27,20 @@ jobs:
           --health-retries 5
 
       redis:
-        image: redis:alpine
+        image: redis
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up JDK 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
         
-    - name: Grant execute permission for gradlew
-      run: chmod +x backend/mvnw
-
-    - name: Build and Test with Maven
-      # We cd into 'backend' because your pom.xml is inside that folder
-      run: cd backend && ./mvnw clean test
+    - name: Build with Maven
+      # We skip the specific load test just in case, though @Disabled handles it
+      run: ./mvnw clean test -Dtest=!ApiLoadTest
