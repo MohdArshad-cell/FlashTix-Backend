@@ -1,33 +1,49 @@
-![Build Status](https://github.com/MohdArshad-cell/FlashTix-Backend/actions/workflows/maven.yml/badge.svg)
 
 ```markdown
-# ⚡ FlashTix - High-Concurrency Ticketing Engine
+# ⚡ FlashTix - High-Performance Ticketing Engine
 
-FlashTix is an enterprise-grade backend system designed to handle massive traffic surges (e.g., flash sales) while guaranteeing strict data consistency. It prevents race conditions and overbooking using a **Dual-Layer Locking Strategy** (Redis Distributed Locks + Database Optimistic Locking).
+![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-green) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue) ![Redis](https://img.shields.io/badge/Redis-Distributed%20Lock-red) ![Grafana](https://img.shields.io/badge/Observability-Grafana%20%2B%20Prometheus-orange)
 
-## 🚀 Tech Stack
-- **Core:** Java 17, Spring Boot 3.4
-- **Database:** PostgreSQL (Optimized with HikariCP Connection Pooling)
-- **Caching & Locking:** Redis (Distributed Locks with TTL)
-- **Testing:** JUnit 5 & Java Concurrency (ExecutorService, CountDownLatch)
-- **Documentation:** OpenAPI (Swagger UI)
-- **Containerization:** Docker Support
+**FlashTix** is an enterprise-grade backend system engineered to handle massive traffic surges (e.g., flash sales) while guaranteeing **strict data consistency**.
 
-## 🏗️ System Architecture: The "Two-Layer Defense"
+Unlike typical CRUD apps, FlashTix solves the **"Double Booking Problem"** using a multi-layered concurrency strategy, ensuring that **exactly one user** can book a specific seat even under a load of 500+ concurrent requests per second.
 
-The system processes booking requests through a rigorous two-step concurrency control mechanism to ensure that **exactly one user** can book a specific seat, even if 500+ users try simultaneously.
+---
+
+## 📊 Proof of Work: Real-Time Observability
+*The system doesn't just "run"; it provides real-time telemetry on lock contention and system health.*
+
+![Grafana Dashboard](assets/high-concurrency-dashboard.png)
+
+| Metric | Result | Description |
+| :--- | :--- | :--- |
+| **Concurrency Load** | **500 Threads** | Simulating 500 users hitting `/book` simultaneously. |
+| **Success Rate** | **1 Booking** | Exactly one user acquired the ticket. |
+| **Rejection Rate** | **499 Rejections** | 99.8% of requests were correctly rejected (HTTP 409). |
+| **Data Integrity** | **100%** | No race conditions or dirty writes detected. |
+
+---
+
+## 🏗️ System Architecture: The "Defense-in-Depth" Strategy
+
+The system processes booking requests through a rigorous pipeline to protect the database from being overwhelmed.
 
 ```mermaid
 graph TD
-    User[User Request] -->|POST /book| LB[Load Balancer]
-    LB --> API[Booking Service]
+    User[User Request] -->|POST /book| API[Booking Service]
     
-    subgraph "Layer 1: Redis Gatekeeper"
-        API -->|SETNX lock:ticket:{id}| Redis{Acquire Lock?}
-        Redis -- No --> Reject[409 Conflict: Too Many Requests]
+    subgraph "Observability Layer"
+        API -.->|Record Metrics| Micrometer[Micrometer]
+        Micrometer -->|Scrape| Prom[Prometheus]
+        Prom -->|Visualize| Grafana[Grafana Dashboard]
+    end
+
+    subgraph "Layer 1: Redis Distributed Lock"
+        API -->|SETNX (Lua Script)| Redis{Acquire Lock?}
+        Redis -- No --> Reject[409 Conflict: fast-fail]
     end
     
-    subgraph "Layer 2: Database Final Guard"
+    subgraph "Layer 2: Database Optimistic Locking"
         Redis -- Yes --> DB[PostgreSQL Transaction]
         DB -->|Check @Version| Verify{Version Match?}
         Verify -- No --> Rollback[OptimisticLockException]
@@ -36,69 +52,92 @@ graph TD
 
 ```
 
-###1. Layer 1: Redis Distributed Lock (The Gatekeeper)* **Code Reference:** `TicketService.java`
-* **Mechanism:** Uses `SETNX` (Set if Not Exists) with a 5-second TTL.
-* **Why:** Acts as a first line of defense to reduce database pressure. It creates a "queue-like" effect where only one request per ticket processes at a time.
-* **Fault Tolerance:** The TTL ensures that if the server crashes while holding a lock, it automatically expires to prevent deadlocks.
+### 1. Redis Distributed Lock (The Gatekeeper)
 
-###2. Layer 2: Database Optimistic Locking (The Final Guard)* **Code Reference:** `Ticket.java` (`@Version` annotation)
-* **Mechanism:** Hibernate/JPA validates the version number before committing.
-* **Why:** Ensures atomic consistency at the persistent storage level. If a request somehow bypasses Redis (e.g., during cache eviction or split-brain), the database rejects the write because the version numbers won't match.
+* **Tech:** Redis `SETNX` + Lua Scripting.
+* **Function:** Acts as a high-speed semaphore. It creates a "queue-like" effect where only one request per ticket ID can proceed to the database.
+* **Safety:** Implemented with a **TTL (Time-To-Live)** to prevent deadlocks if the application crashes mid-process. Unlock operations use atomic Lua scripts to ensure ownership.
 
-##🧪 "Proof of Work" - The Concurrency Stress TestI didn't just write the code; I proved it works under fire. The project includes a dedicated stress test (`TicketConcurrencyTest.java`) that simulates a real-world attack.
+### 2. Optimistic Locking (The Final Guard)
 
-###Test Scenario:* **Threads:** 500 Concurrent Threads (simulating 500 users clicking "Buy" at the exact same millisecond).
-* **Target:** 1 Single Ticket (`VIP-TEST-1`).
-* **Tool:** `ExecutorService` and `CountDownLatch`.
+* **Tech:** JPA `@Version`.
+* **Function:** A database-level fail-safe. If a Redis key is evicted or a split-brain occurs, the database prevents overwrites by checking the version number of the row before committing.
 
-###The Code (`TicketConcurrencyTest.java`):```java
-// Simulating 500 users attacking 1 ticket
-ExecutorService executor = Executors.newFixedThreadPool(500);
-CountDownLatch latch = new CountDownLatch(1);
+---
 
-for (int i = 0; i < 500; i++) {
-    executor.submit(() -> {
-        latch.await(); // Hold all threads until signal
-        ticketService.bookTicket(ticketId, userId); // FIRE!
-    });
-}
+## 🚀 Tech Stack
 
-```
+* **Core:** Java 17, Spring Boot 3.4
+* **Database:** PostgreSQL (Tuned with HikariCP for connection pooling)
+* **Caching & Locking:** Redis (Lettuce Client)
+* **Observability:**
+* **Prometheus:** Scrapes metrics from Spring Actuator.
+* **Grafana:** Visualizes throughput, lock contention, and DB pool usage.
+* **Micrometer:** Custom metrics (`flashtix.sold.out`) to track business-logic failures.
 
-###📉 Results| Metric | Count |
-| --- | --- |
-| **Total Requests** | 500 |
-| **Successful Bookings** | **1** (Exactly) |
-| **Failed Requests** | **499** (Correctly Rejected) |
-| **Data Integrity** | **100%** |
 
-##🛠️ How to Run###1. Start InfrastructureMake sure you have Docker installed. Spin up the Database and Cache:
+* **Testing:** JUnit 5, Java HTTP Client (for external load testing), ExecutorService.
+* **Containerization:** Docker & Docker Compose.
+
+---
+
+## 🛠️ How to Run
+
+### 1. Start Infrastructure
+
+Spin up PostgreSQL, Redis, Prometheus, and Grafana using Docker Compose.
 
 ```bash
+cd backend
 docker-compose up -d
 
 ```
 
-*(This starts PostgreSQL on port 5432 and Redis on port 6379)*
+### 2. Run the Application
 
-###2. Run the Application```bash
+Start the Spring Boot application.
+
+```bash
 ./mvnw spring-boot:run
 
 ```
 
-###3. API DocumentationOnce running, explore the endpoints via Swagger UI:
-👉 **[http://localhost:8080/swagger-ui.html](https://www.google.com/search?q=http://localhost:8080/swagger-ui.html)**
+### 3. Access Interfaces
 
-##📝 Key Configuration (`application.properties`)To handle high load, we tuned the HikariCP connection pool:
+* **Swagger UI:** [http://localhost:8080/swagger-ui.html](https://www.google.com/search?q=http://localhost:8080/swagger-ui.html)
+* **Grafana:** [http://localhost:3000](https://www.google.com/search?q=http://localhost:3000) (Login: `admin` / `admin`)
+* **Prometheus:** [http://localhost:9090](https://www.google.com/search?q=http://localhost:9090)
 
-```properties
-# High Concurrency Tuning
-spring.datasource.hikari.maximum-pool-size=50
-spring.datasource.hikari.connection-timeout=30000
+---
+
+## 🧪 Running the Stress Test
+
+To replicate the results shown in the "Proof of Work" section:
+
+**1. Seed the Database**
+Creates 100 fresh tickets.
+
+```bash
+curl -X POST http://localhost:8080/api/tickets/seed
 
 ```
 
-##👨‍💻 Author**Mohd Arshad**
+**2. Launch the Attack**
+Runs `ApiLoadTest.java`, which fires **500 concurrent HTTP requests** against the running server.
+
+```bash
+./mvnw test -Dtest=ApiLoadTest
+
+```
+
+**3. View Results**
+Check the logs for `Sold Out Errors: 499` and view the spike on the Grafana dashboard.
+
+---
+
+## 👨‍💻 Author
+
+**Mohd Arshad**
 Backend Engineer | [LinkedIn](https://www.google.com/search?q=https://www.linkedin.com/in/mohd-arshad-156227314/)
 
 ```
