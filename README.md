@@ -1,3 +1,5 @@
+![Build Status](https://github.com/MohdArshad-cell/StreamFlow-Backend/actions/workflows/maven.yml/badge.svg)
+
 # ⚡ FlashTix - High-Performance Ticketing Engine
 
 ![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-green) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue) ![Redis](https://img.shields.io/badge/Redis-Distributed%20Lock-red) ![Grafana](https://img.shields.io/badge/Observability-Grafana%20%2B%20Prometheus-orange)
